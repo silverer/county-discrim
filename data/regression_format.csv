@@ -1,0 +1,11 @@
+﻿Predictor,Predictor_pretty
+(Intercept),Intercept
+acs_nonwhite_prop,Racial diversity
+mrp_ideology_mean,Conservatism
+acs_unemploy_white,White unemployment
+acs_nonwhite_prop:mrp_ideology_mean,Racial diversity x Conservatism
+acs_nonwhite_prop:acs_unemploy_white,Racial diversity x White unemployment
+mrp_ideology_mean:acs_unemploy_white,Conservatism x White unemployment
+acs_nonwhite_prop:mrp_ideology_mean:acs_unemploy_white,Racial diversity x Conservatism x White unemployment
+R2,R2
+Change in R2,Change in R2

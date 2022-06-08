@@ -1,0 +1,428 @@
+---
+title: 'Anti-White Discrimination Claims: Robustness Checks'
+author: "Elisabeth R Silver"
+date: '2022'
+output:
+  word_document: default
+  html_document: default
+---
+
+
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+if (!require("pacman")) install.packages("pacman"); library(pacman)#Load the package manager 
+#devtools::install_github("silverer/statstring")
+p_load(tidyverse, stats, stringr, effects,lsmeans,
+       scales, statstring, Hmisc, interactions,
+       cowplot,apaTables,openxlsx)
+filter <- dplyr::filter
+select <- dplyr::select
+output <- "outputs/"
+local_data <- "data/"
+box_data <- "../../Library/CloudStorage/Box-Box/EEOC data/"
+```
+
+
+
+
+### 1. Using all unemployment:
+
+```{r}
+grpd_demog_county <- read.csv(paste0(box_data,"agg_claim_info_county_w_retal_v1.csv"))
+#this should be 0
+grpd_demog_county <- grpd_demog_county[!is.na(grpd_demog_county$fixed_fip),]
+
+grpd_demog_county$fixed_fip <- str_pad(grpd_demog_county$fixed_fip,
+                                       width = 5, side = "left",
+                                       pad = "0")
+#https://www2.census.gov/geo/maps/general_ref/us_base/stco2010/USstcou2010_wallmap.pdf
+acs_data <- read.csv(paste0(box_data, "white_unemployment_pop.csv"))
+acs_data["fixed_fip"] <- str_pad(acs_data$fixed_fip, width = 5, side = "left",
+                                 pad = "0")
+acs_data["in_df"] <- acs_data$fixed_fip %in% grpd_demog_county$fixed_fip
+
+grpd_demog_county <- left_join(grpd_demog_county, acs_data, by = "fixed_fip")
+
+grpd_demog_county <- grpd_demog_county[grpd_demog_county$fixed_fip!= "FAILED",]
+grpd_demog_county<-grpd_demog_county[grpd_demog_county$n.complaints.noretal>0,]
+grpd_demog_county <- grpd_demog_county %>%
+  filter(!is.na(mrp_ideology_mean))
+
+grpd_demog_county$fixed_fip <- str_pad(grpd_demog_county$fixed_fip, 
+                                       width = 5, side = "left",
+                                       pad = "0")
+#grpd_demog_county[grpd_demog_county$fixed_fip=="11001",] #double-check that DC is included
+grpd_demog_county["prop_white_comp"] <- grpd_demog_county$n.white/grpd_demog_county$n.complaints.noretal
+grpd_demog_county$prop_white_comp[grpd_demog_county$n.white==0] <- 0
+grpd_demog_county["sqrt_prop_white"] <- sqrt(grpd_demog_county$prop_white_comp)
+grpd_demog_county["acs_nonwhite_prop"] <- (100 - grpd_demog_county$percent_white)/100
+grpd_demog_county["acs_unemploy_white"] <- grpd_demog_county$unemploy_white/100
+grpd_demog_county["acs_all_unemploy"] <- grpd_demog_county$unemploy_all/100
+```
+
+```{r}
+grpd_demog_county <- grpd_demog_county %>% 
+  filter(!is.na(acs_nonwhite_prop)) %>% 
+  filter(!is.na(acs_all_unemploy)) %>% 
+  filter(!is.na(mrp_ideology_mean))
+m1.0 <- lm(sqrt_prop_white~acs_nonwhite_prop+mrp_ideology_mean+acs_all_unemploy,
+            data=grpd_demog_county)
+summary(m1.0)
+
+m2.0 <- lm(sqrt_prop_white~acs_nonwhite_prop*mrp_ideology_mean+acs_all_unemploy,
+            data=grpd_demog_county)
+summary(m2.0)
+
+jn_h2.0 <- sim_slopes(m2.0, pred=acs_nonwhite_prop,
+                      modx=mrp_ideology_mean,
+                      modx.values = "plus-minus",
+                      confint=T,jnplot=T)
+jn_h2.0
+
+m3.0 <- lm(sqrt_prop_white~acs_nonwhite_prop*mrp_ideology_mean*acs_all_unemploy,
+            data=grpd_demog_county)
+summary(m3.0)
+jn_h3.0 <- sim_slopes(m3.0, pred=acs_nonwhite_prop,
+                      modx=mrp_ideology_mean,
+                      modx.values = "plus-minus",
+                      mod2=acs_all_unemploy,
+                      mod2.values = "plus-minus",
+                      confint=T,jnplot=T)
+jn_h3.0
+```
+
+Save the results of the first robustness check:
+
+```{r}
+
+reg_fmt_tmp <- read.csv(paste0(local_data,"regression_format.csv"))
+reg_fmt_tmp <- reg_fmt_tmp %>% 
+  mutate(across(everything(), 
+                ~str_replace_all(.x, "acs_unemploy_white", "acs_all_unemploy"))) %>% 
+  mutate(across(everything(), 
+                ~str_replace_all(.x, "White unemployment", "All unemployment")))
+format_regression_table <- function(models, 
+                                    reg_fmt = read.csv(paste0(local_data,"regression_format.csv"))){
+  tracker = 1
+  for(m in models){
+    tmp_res = summary(m)
+    tmp_coef = data.frame(tmp_res$coefficients)
+    tmp_coef[,1] = number(tmp_coef[,1],accuracy = .01)#beta
+    tmp_coef[,2] = number(tmp_coef[,2], accuracy = .01)#SE beta
+    tmp_coef[,4] = sapply(tmp_coef[,4], statstring::format_sig_stars)#p-val
+    tmp_coef[,1] = paste0(tmp_coef[,1], tmp_coef[,4])
+    tmp_coef["Predictor"] = rownames(tmp_coef)
+    mnum = paste0("model", tracker, "_")
+    colnames(tmp_coef) = c(paste0(mnum, c("b", "se_b", "t", "p")), "Predictor")
+    tmp_coef = tmp_coef %>% 
+      select(Predictor, ends_with("_b"), ends_with("se_b"))
+    reg_fmt = left_join(reg_fmt, tmp_coef, by = "Predictor")
+    print(number(statstring::extract_r2(m),accuracy = .001))
+    reg_fmt[reg_fmt$Predictor == "R2", paste0(mnum, "se_b")] = number(tmp_res$adj.r.squared,
+                                                                       accuracy = .001)
+    if(tracker > 1){
+      mod_aov = anova(models[[tracker - 1]], models[[tracker]])
+      reg_fmt[reg_fmt$Predictor == "Change in R2", 
+              paste0(mnum, "se_b")] <- paste0(number(mod_aov$`F`[2], accuracy =.01),
+                                              format_sig_stars(mod_aov$`Pr(>F)`[2]))
+    }
+    tracker = tracker + 1
+  }
+  reg_fmt[is.na(reg_fmt)] = "-"
+  return(reg_fmt)
+}
+
+modlist <- list(m1.0,m2.0,m3.0)
+reg_out <- format_regression_table(modlist, reg_fmt=reg_fmt_tmp)
+num_line <- rep("", ncol(reg_out))
+num_line[1] <- paste0("N = ",number(nrow(grpd_demog_county), big.mark=","))
+reg_out <- rbind(reg_out, num_line)
+write.xlsx(reg_out, paste0(output,
+                           "robustness_1_regression_outs_no_retal_v1.xlsx"),overwrite = T)
+```
+
+### 2. All EEO cases with 2006-2010 ACS data
+
+```{r}
+grpd_demog_county <- read.csv(paste0(box_data, "agg_claim_info_county_w_retal_v1.csv"))
+#this should be 0
+grpd_demog_county <- grpd_demog_county[!is.na(grpd_demog_county$fixed_fip),]
+
+grpd_demog_county$fixed_fip <- str_pad(grpd_demog_county$fixed_fip, 
+                                       width = 5, side = "left",
+                                       pad = "0")
+#https://www2.census.gov/geo/maps/general_ref/us_base/stco2010/USstcou2010_wallmap.pdf
+#3142 counties in the US
+acs_data <- read.csv(paste0(box_data, "white_unemployment_pop_2010.csv"))
+acs_data["fixed_fip"] <- str_pad(acs_data$fixed_fip, width = 5, side = "left",
+                                 pad = "0")
+acs_data["in_df"] <- acs_data$fixed_fip %in% grpd_demog_county$fixed_fip
+
+grpd_demog_county <- left_join(grpd_demog_county, acs_data, by = "fixed_fip")
+
+grpd_demog_county <- grpd_demog_county[grpd_demog_county$fixed_fip!= "FAILED",]
+grpd_demog_county<-grpd_demog_county[grpd_demog_county$n.complaints.noretal>0,]
+grpd_demog_county <- grpd_demog_county %>% 
+  filter(!is.na(mrp_ideology_mean))
+
+grpd_demog_county$fixed_fip <- str_pad(grpd_demog_county$fixed_fip, 
+                                       width = 5, side = "left",
+                                       pad = "0")
+grpd_demog_county["prop_white_comp"] <- grpd_demog_county$n.white/grpd_demog_county$n.complaints.noretal
+grpd_demog_county$prop_white_comp[grpd_demog_county$n.white==0] <- 0
+grpd_demog_county["sqrt_prop_white"] <- sqrt(grpd_demog_county$prop_white_comp)
+grpd_demog_county["acs_nonwhite_prop"] <- (100 - grpd_demog_county$percent_white)/100
+grpd_demog_county["acs_unemploy_white"] <- grpd_demog_county$unemploy_white/100
+```
+
+
+
+```{r}
+grpd_demog_county <- grpd_demog_county%>% 
+  filter(!is.na(acs_nonwhite_prop)) %>% 
+  filter(!is.na(acs_unemploy_white)) %>% 
+  filter(!is.na(mrp_ideology_mean))
+print(nrow(grpd_demog_county))
+#rcorr(grpd_demog_county$acs_nonwhite_prop,grpd_demog_county$prop_white_comp)
+m1.2 <- lm(sqrt_prop_white~acs_nonwhite_prop+mrp_ideology_mean+acs_unemploy_white,
+            data=grpd_demog_county)
+summary(m1.2)
+m2.2 <- lm(sqrt_prop_white~acs_nonwhite_prop*mrp_ideology_mean+acs_unemploy_white,
+            data=grpd_demog_county)
+summary(m2.2)
+m3.2 <- lm(sqrt_prop_white~acs_nonwhite_prop*mrp_ideology_mean*acs_unemploy_white,
+            data=grpd_demog_county)
+summary(m3.2)
+anova(m2.2,m3.2)
+
+
+```
+
+
+```{r}
+jn_h2.2 <- sim_slopes(m2.2, pred=acs_nonwhite_prop,
+                      modx=mrp_ideology_mean,
+                      modx.values = "plus-minus",
+                      confint=T,jnplot=T)
+jn_h2.2
+
+jn_h3.2 <- sim_slopes(m3.2, pred=acs_nonwhite_prop,
+                      modx=mrp_ideology_mean,
+                      modx.values = "plus-minus",
+                      mod2=acs_unemploy_white,
+                      mod2.values = "plus-minus",
+                      confint=T,jnplot=T)
+jn_h3.2
+
+p_load(lsmeans)
+mrp_levels <- c((mean(grpd_demog_county$mrp_ideology_mean,
+                                                                na.rm=T)-
+                                                             sd(grpd_demog_county$mrp_ideology_mean,
+                                                                na.rm = T)),
+                                                          (mean(grpd_demog_county$mrp_ideology_mean,
+                                                                na.rm=T)+
+                                                             sd(grpd_demog_county$mrp_ideology_mean,
+                                                                na.rm = T)))
+div_levels <- c((mean(grpd_demog_county$acs_nonwhite_prop)-
+                                                              sd(grpd_demog_county$acs_nonwhite_prop)),
+                                                           (mean(grpd_demog_county$acs_nonwhite_prop)+
+                                                              sd(grpd_demog_county$acs_nonwhite_prop)))
+unemp_levels <- c((mean(grpd_demog_county$acs_unemploy_white)-
+                                                              sd(grpd_demog_county$acs_unemploy_white)),
+                                                           (mean(grpd_demog_county$acs_unemploy_white)+
+                                                              sd(grpd_demog_county$acs_unemploy_white)))
+m.lst <- lstrends(m2.2, ~mrp_ideology_mean,
+                  var = "acs_nonwhite_prop",at = list(mrp_ideology_mean=mrp_levels))
+pairs(m.lst)
+
+m.lst <- lstrends(m3.2, ~mrp_ideology_mean|acs_unemploy_white,
+                  var = "acs_nonwhite_prop",at = list(mrp_ideology_mean=mrp_levels,
+                                                      acs_unemploy_white=unemp_levels))
+pairs(m.lst)
+# 
+m.lst <- lstrends(m3.2, ~acs_unemploy_white|mrp_ideology_mean,
+                  var = "acs_nonwhite_prop",at = list(mrp_ideology_mean=mrp_levels,
+                                                      acs_unemploy_white=unemp_levels))
+pairs(m.lst)
+```
+
+
+```{r}
+#formats regression coefficients for output in text
+reg_text <- function(mod){
+  mod.sum = data.frame(summary(mod)$coefficients)
+  ci = data.frame(confint(mod))
+  mod.sum["text_out"] <- ""
+  for(i in 1:nrow(mod.sum)){
+    mod.sum$text_out[i] = paste0("b (95% CI) = ", number(mod.sum$`Est.`[i],
+                                        accuracy = .01),
+                         " (",
+                         number(ci$`X2.5..`[i],
+                                        accuracy = .01),
+                         ", ",
+                         number(ci$`X97.5..`[i],
+                                        accuracy = .01),
+                         "),",
+                         
+                         " SE b = ", number(mod.sum$`Std..Error`[i],
+                                             accuracy = .01),
+                         ", ", 
+                         format_pval_apa(mod.sum$`Pr...t..`[i]))
+  }
+  return(mod.sum)
+}
+#formats point-estimates of slopes for output in text
+format_slope_text <- function(slope.df){
+  new.list = rep("", nrow(slope.df))
+  for(i in 1:nrow(slope.df)){
+    new.list[i] = paste0("b [95% CI] = ", number(slope.df$`Est.`[i],
+                                        accuracy = .01),
+                         " [",
+                         number(slope.df$`X2.5.`[i],
+                                        accuracy = .01),
+                         ", ",
+                         number(slope.df$`X97.5.`[i],
+                                        accuracy = .01),
+                         "],",
+                         
+                         " SE b = ", number(slope.df$`S.E.`[i],
+                                             accuracy = .01),
+                         ", ", 
+                         format_pval_apa(slope.df$p[i]))
+  }
+  return(new.list)
+}
+```
+
+
+```{r}
+reg_text(m3.2) %>% select(text_out)
+```
+
+
+```{r}
+
+r2.slopes <- data.frame(jn_h3.2$slopes[[1]])
+r2.slopes["acs_unemploy_white"] <- "Low White Unemploy"
+tmp.slopes <- data.frame(jn_h3.2$slopes[[2]])
+tmp.slopes["acs_unemploy_white"] <- "High White Unemploy"
+r2.slopes <- rbind(r2.slopes, tmp.slopes)
+r2.slopes["mrp_ideology_mean"] <- c("Low Conservatism", "High Conservatism",
+                                    "Low Conservatism", "High Conservatism")
+r2.slopes["text"] <- format_slope_text(r2.slopes)
+r2.slopes %>% 
+  select(acs_unemploy_white, mrp_ideology_mean, text)
+```
+
+
+Save results of second robustness check:
+```{r}
+modlist <- list(m1.2,m2.2,m3.2)
+reg_out <- format_regression_table(modlist)
+num_line <- rep("", ncol(reg_out))
+num_line[1] <- paste0("N = ",number(nrow(grpd_demog_county), big.mark=","))
+reg_out <- rbind(reg_out, num_line)
+write.xlsx(reg_out, paste0(output,"robustness_2_regression_outs_no_retal_v2.xlsx"),
+           overwrite = T)
+```
+
+### 3. Using only 2010-2014 EEO data + 2010-2014 Census data:
+
+Read in the EEO data by year and county
+
+```{r}
+grpd_year <- read.csv(paste0(box_data, "agg_claim_info_county_w_retal_robust.csv"))
+grpd_year <- grpd_year %>% filter(fixed_fip!="FAILED")
+grpd_year <- grpd_year %>% filter(!is.na(mrp_ideology_mean))
+grpd_year$fixed_fip <- str_pad(grpd_year$fixed_fip, width = 5, side = "left", pad = "0")
+
+```
+
+
+
+```{r}
+
+t1 <- grpd_year %>% 
+  filter(n.complaints.noretal>0) %>% 
+  mutate(prop_white_complaints = n.white/n.complaints.noretal)
+
+acs_t1 <- read.csv(paste0(box_data, "white_unemployment_pop.csv"))
+acs_t1["fixed_fip"] <- str_pad(acs_t1$fixed_fip, width = 5, side = "left",
+                                 pad = "0")
+t1.merge <- left_join(t1, acs_t1, by = "fixed_fip")
+nrow(t1.merge %>% filter(n.complaints==0))
+t1.merge <- t1.merge %>% 
+  mutate(acs_nonwhite_prop = (100 - percent_white)/100,
+         acs_unemploy_white = unemploy_white/100,
+         acs_unemploy_all = unemploy_all/100)
+t1.merge$prop_white_complaints[t1.merge$n.white==0] <- 0
+t1.merge["sqrt_prop_white"] <- sqrt(t1.merge$prop_white_complaints)
+```
+
+
+```{r}
+
+t1.merge <- t1.merge %>% 
+  filter(!is.na(acs_nonwhite_prop)) %>% 
+  filter(!is.na(acs_unemploy_white)) %>% 
+  filter(!is.na(mrp_ideology_mean))
+nrow(t1.merge)
+m1.3 <- lm(sqrt_prop_white~acs_nonwhite_prop+mrp_ideology_mean+acs_unemploy_white,
+            data=t1.merge)
+summary(m1.3)
+
+m2.3 <- lm(sqrt_prop_white~acs_nonwhite_prop*mrp_ideology_mean+acs_unemploy_white,
+            data=t1.merge)
+summary(m2.3)
+
+
+m3.3 <- lm(sqrt_prop_white~acs_nonwhite_prop*mrp_ideology_mean*acs_unemploy_white,
+            data=t1.merge)
+summary(m3.3)
+```
+
+```{r}
+reg_text(m3.3) %>% select(text_out)
+```
+
+
+
+```{r}
+jn_h2.1 <- sim_slopes(m2.3, pred=acs_nonwhite_prop,
+                      modx=mrp_ideology_mean,
+                      modx.values = "plus-minus",
+                      confint=T,jnplot=T)
+jn_h2.1
+
+jn_h3.1 <- sim_slopes(m3.3, pred=acs_nonwhite_prop,
+                      modx=mrp_ideology_mean,
+                      modx.values = "plus-minus",
+                      mod2=acs_unemploy_white,
+                      mod2.values = "plus-minus",
+                      confint=T,jnplot=T)
+jn_h3.1
+
+m.lst <- lstrends(m3.3, ~mrp_ideology_mean|acs_unemploy_white,
+                  var = "acs_nonwhite_prop",at = list(mrp_ideology_mean=mrp_levels,
+                                                      acs_unemploy_white=unemp_levels))
+pairs(m.lst)
+
+```
+
+Save results of third robustness check:
+
+```{r}
+modlist <- list(m1.3,m2.3,m3.3)
+reg_out <- format_regression_table(modlist)
+num_line <- rep("", ncol(reg_out))
+num_line[1] <- paste0("N = ",number(nrow(t1.merge), big.mark=","))
+reg_out <- rbind(reg_out, num_line)
+write.xlsx(reg_out, paste0(output, "robustness_3_regression_outs_no_retal_v1.xlsx"),overwrite = T)
+```
+
+
+
+
+
+
