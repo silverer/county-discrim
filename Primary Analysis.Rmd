@@ -51,25 +51,6 @@ grpd_demog_county <- left_join(grpd_demog_county, acs_data, by = "fixed_fip")
 ```
 
 
-Look at the number of counties for each state:
-
-```{r}
-state_counts <- data.frame(table(grpd_demog_county$abb))
-colnames(state_counts) <- c("abb", "n_counties")
-county_counts <- read.csv(paste0(local_data,"county_numbers.csv"))
-state_names <- county_counts$info[seq(2,306, 6)]
-n_counties <- county_counts$info[seq(4,308, 6)]
-county_counts <- data.frame(abb = state_names,
-                            n_counties_correct = n_counties)
-
-comparison <- left_join(state_counts, county_counts, by = "abb")
-comparison["diff"] <- as.numeric(comparison$n_counties) - as.numeric(comparison$n_counties_correct)
-#comparison[comparison$diff!=0,]
-va <- acs_data[str_starts(acs_data$fixed_fip, "51"),]
-#table(va$in_df,useNA = "ifany")
-
-```
-
 Save the merged dataset:
 
 ```{r}
@@ -146,6 +127,7 @@ grpd_demog_county["acs_unemploy_white"] <- grpd_demog_county$unemploy_white/100
 ```
 
 ```{r}
+#create a pretty correlation table
 graph_county <- grpd_demog_county %>% 
   dplyr::select(prop_white_comp,
                 acs_nonwhite_prop,
@@ -200,7 +182,7 @@ f <- cor.res %>%
   align(1:nrow(cor.res), 2:ncol(cor.res), align = "center")%>% 
   bold(c(1), 1:ncol(cor.res), part = "header") %>% 
   add_footer_lines(paste0("Note. N = ",
-                          number(nrow(graph_county), big.mark=",", accuracy = 1),
+                          scales::number(nrow(graph_county), big.mark=",", accuracy = 1),
                           " counties. POC indicates people of color, M indicates mean, SD indicates standard deviation. ** indicates p < .01."))
 f
 write.csv(cor.res, paste0(output, "correlation_descriptives_v1.csv"))
@@ -227,6 +209,7 @@ summary(m3)
 
 
 ```{r}
+#conduct slope difference tests
 mrp_levels <- c((mean(grpd_demog_county$mrp_ideology_mean,
                                                                 na.rm=T)-
                                                              sd(grpd_demog_county$mrp_ideology_mean,
@@ -304,7 +287,7 @@ write.xlsx(reg_out, paste0(output, "regression_outs_no_retal_v1.xlsx"),overwrite
 ```
 
 ```{r}
-
+#create pretty regression table
 reg_out <- reg_out %>% 
   select(-any_of(c("Predictor")))
 header_1 <- c("Predictor"=1, 
@@ -359,6 +342,7 @@ jn_h3
 
 
 ```{r}
+#create +/- 1 SD of mean for plots
 cons_levels <- c((mean(grpd_demog_county$mrp_ideology_mean)-
                     sd(grpd_demog_county$mrp_ideology_mean)),
                  mean(grpd_demog_county$mrp_ideology_mean),
@@ -523,8 +507,8 @@ m3.slopes["mrp_ideology_mean"] <- c("Low Conservatism", "High Conservatism",
 m3.slopes["text"] <- format_slope_text(m3.slopes)
 #low white unemploy, low cons; low white unemploy, high cons; 
 #high white unemploy low cons; high white unemploy, high cons
-m3.slopes["x"] <- c(.15, .325,.34,.15)
-m3.slopes["y"] <- c(.15,.1,.115,.17)
+m3.slopes["x"] <- c(.15, .325,.348,.153)
+m3.slopes["y"] <- c(.153,.1,.119,.175)
 
 joined <- left_join(intrxn.sd, m3.slopes, by = c("mrp_ideology_mean", "acs_unemploy_white"))
 joined$acs_unemploy_white <- factor(joined$acs_unemploy_white,
@@ -647,5 +631,78 @@ save_plot(paste0(output, "h3_plot_paper_v1.png"), Plot.SD)
 Plot.SD
 ```
 
+Plot the 3-way interaction in black and white:
 
+```{r}
+
+intrxn.sd <- effect(c("acs_nonwhite_prop*mrp_ideology_mean*acs_unemploy_white"),
+               mod = m3, 
+               xlevels = list(mrp_ideology_mean=c(cons_levels[1],cons_levels[3]),
+                              acs_unemploy_white=c(unemploy_levels[1], unemploy_levels[3]),
+                              acs_nonwhite_prop=c(div_levels[1],div_levels[3])))
+
+intrxn.sd <- as.data.frame(intrxn.sd)
+mod.labs <- c("-1 SD", "+ 1 SD")
+# Create factors of the different variables in your interaction 
+intrxn.sd$mrp_ideology_mean<-factor(intrxn.sd$mrp_ideology_mean,
+                      levels=c(cons_levels[1],cons_levels[3]),
+                      labels=c("Low Conservatism", "High Conservatism"))
+intrxn.sd$mrp_ideology_mean_rev <- factor(intrxn.sd$mrp_ideology_mean, 
+                                      levels = rev(levels(intrxn.sd$mrp_ideology_mean)))
+
+intrxn.sd$acs_unemploy_white<-factor(intrxn.sd$acs_unemploy_white,
+                      levels=c(unemploy_levels[1], unemploy_levels[3]),
+                      labels=c("Low White Unemploy", "High White Unemploy"))
+intrxn.sd$acs_unemploy_white_rev <- factor(intrxn.sd$acs_unemploy_white, 
+                                      levels = rev(levels(intrxn.sd$acs_unemploy_white)))
+
+m3.slopes <- data.frame(jn_h3$slopes[[1]])
+m3.slopes["acs_unemploy_white"] <- "Low White Unemploy"
+tmp.slopes <- data.frame(jn_h3$slopes[[2]])
+tmp.slopes["acs_unemploy_white"] <- "High White Unemploy"
+m3.slopes <- rbind(m3.slopes, tmp.slopes)
+m3.slopes["mrp_ideology_mean"] <- c("Low Conservatism", "High Conservatism",
+                                    "Low Conservatism", "High Conservatism")
+m3.slopes["text"] <- format_slope_text(m3.slopes)
+#low white unemploy, low cons; low white unemploy, high cons; 
+#high white unemploy low cons; high white unemploy, high cons
+m3.slopes["x"] <- c(.15, .325,.356,.153)
+m3.slopes["y"] <- c(.153,.1,.12,.175)
+
+joined <- left_join(intrxn.sd, m3.slopes, by = c("mrp_ideology_mean", "acs_unemploy_white"))
+joined$acs_unemploy_white <- factor(joined$acs_unemploy_white,
+                                        levels = c("Low White Unemploy","High White Unemploy"))
+
+# Plot this bad boy!
+Plot.SD<-
+  joined %>% 
+  ggplot(aes(x=acs_nonwhite_prop, y=fit, 
+             group=mrp_ideology_mean_rev))+
+      geom_line(size=1, aes(linetype=mrp_ideology_mean_rev))+ 
+      geom_point(size=2)+ 
+      facet_wrap(~acs_unemploy_white)+
+      geom_ribbon(aes(ymin=fit-se, ymax=fit+se),
+                  fill="gray",alpha=.2)+ 
+      labs(color = "Conservatism", y = "Anti-White Claim Prevalence",
+           x = "Percent POC")+
+      ggtitle("Anti-White Claim Prevalence by County\nRacial Diversity, Conservatism, and White Unemployment")+ #Title
+  theme_bw()+
+  geom_text(aes(x= x, y = y, label = text),
+            show.legend = F,family="Times",size=4)+
+      theme(panel.grid.major=element_blank(),
+          panel.grid.minor=element_blank(),
+          legend.key = element_blank(),
+          legend.position="top",
+        legend.title = element_blank(),
+        legend.text = element_text(size=9),
+        text = element_text(family="Times"),
+          axis.text=element_text(size=10),
+          title = element_text(size = 12),
+        strip.text.x = element_text(size = 10))+ 
+   xlim(left = 0,
+        right = .5)
+#save_plot("h3_plot.png", Plot.SD)
+save_plot(paste0(output, "h3_plot_paper_bw.png"), Plot.SD)
+Plot.SD
+```
 
