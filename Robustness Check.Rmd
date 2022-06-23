@@ -13,7 +13,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 if (!require("pacman")) install.packages("pacman"); library(pacman)#Load the package manager 
 #devtools::install_github("silverer/statstring")
-p_load(tidyverse, stats, stringr, effects,lsmeans,
+p_load(tidyverse, stats, effects,lsmeans,
        scales, statstring, Hmisc, interactions,
        cowplot,apaTables,openxlsx)
 filter <- dplyr::filter
@@ -268,7 +268,7 @@ reg_text <- function(mod){
                          " SE b = ", number(mod.sum$`Std..Error`[i],
                                              accuracy = .01),
                          ", ", 
-                         format_pval_apa(mod.sum$`Pr...t..`[i]))
+                         statstring::format_pval_apa(mod.sum$`Pr...t..`[i]))
   }
   return(mod.sum)
 }
@@ -289,7 +289,7 @@ format_slope_text <- function(slope.df){
                          " SE b = ", number(slope.df$`S.E.`[i],
                                              accuracy = .01),
                          ", ", 
-                         format_pval_apa(slope.df$p[i]))
+                         statstring::format_pval_apa(slope.df$p[i]))
   }
   return(new.list)
 }

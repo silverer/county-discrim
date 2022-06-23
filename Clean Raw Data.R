@@ -1,5 +1,5 @@
 if (!require("pacman")) install.packages("pacman"); library(pacman)#Load the package manager 
-p_load(haven,dplyr,ggplot2,stats,openxlsx,stringr,readxl,scales)
+p_load(haven,tidyverse,stats,openxlsx,readxl,scales)
 setwd("~/Documents/EEOC-AWD")
 source("utils.R")
 box_data <- "../../Library/CloudStorage/Box-Box/EEOC data/"
