@@ -701,8 +701,10 @@ Plot.SD<-
         strip.text.x = element_text(size = 10))+ 
    xlim(left = 0,
         right = .5)
-#save_plot("h3_plot.png", Plot.SD)
+
 save_plot(paste0(output, "h3_plot_paper_bw.png"), Plot.SD)
+#save as .tiff
+save_plot(paste0(output, "h3_plot_paper_bw.tiff"), Plot.SD)
 Plot.SD
 ```
 
