@@ -188,15 +188,46 @@ f
 write.csv(cor.res, paste0(output, "correlation_descriptives_v1.csv"))
 ```
 
+Compare normality of residuals for transformed and untransformed outcome variable:
+
+```{r}
+m0.ut <- lm(prop_white_comp~acs_nonwhite_prop+mrp_ideology_mean+acs_unemploy_white,
+            data=grpd_demog_county)
+resid.ut <- m0.ut$residuals
+m1 <- lm(sqrt_prop_white~acs_nonwhite_prop+mrp_ideology_mean+acs_unemploy_white,
+            data=grpd_demog_county)
+resid.m1 <- m1$residuals
+
+resids <- data.frame(resid.ut,
+                     resid.m1) %>% 
+  pivot_longer(everything())
+
+resid.plots <- resids %>%
+  mutate(Outcome = recode(name, 
+                       resid.m1 = "Transformed", 
+                       resid.ut = "Untransformed")) %>% 
+  ggplot(aes(value))+
+  geom_histogram(binwidth = .1)+
+  facet_wrap(vars(Outcome))+
+  labs(x = "Residuals", y = "Frequency", 
+       title = "Residual Distribution: Transformed vs. Untransformed Outcome")+
+  theme_bw()+
+  theme(panel.grid.major=element_blank(),
+          panel.grid.minor=element_blank(),
+          legend.key = element_blank(),
+        strip.text.x = element_text(size=12),
+        text = element_text(family="Times"),
+          axis.text=element_text(size=12),
+          title = element_text(size = 10),
+        legend.text = element_text(size=12))
+save_plot(paste0(output, "residual_comparison.png"), resid.plots)
+```
 
 
 
 Run the regression analyses:
 
 ```{r}
-m1 <- lm(sqrt_prop_white~acs_nonwhite_prop+mrp_ideology_mean+acs_unemploy_white,
-            data=grpd_demog_county)
-summary(m1)
 
 m2 <- lm(sqrt_prop_white~acs_nonwhite_prop*mrp_ideology_mean+acs_unemploy_white,
             data=grpd_demog_county)
