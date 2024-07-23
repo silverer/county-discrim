@@ -1,0 +1,711 @@
+---
+title: 'Anti-White Discrimination Claims: Primary Analysis'
+author: "Elisabeth R Silver"
+date: "2024"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+```
+
+
+
+```{r}
+
+if (!require("pacman")) install.packages("pacman"); library(pacman)#Load the package manager 
+#devtools::install_github("silverer/statstring")
+p_load(tidyverse, stats, effects,haven,apaTables,
+       scales, statstring, Hmisc, interactions,
+       cowplot,apaTables,openxlsx,lsmeans,flextable)
+filter <- dplyr::filter
+select <- dplyr::select
+output <- "outputs/"
+local_data <- "data/"
+box_data <- "../../Library/CloudStorage/Box-Box/EEOC data/"
+```
+
+# Merge EEOC and Census data
+
+Read in the EEOC data and merge with Census data (note: `emp_pop_data_05_14.csv` comes from the Python notebook `Get Census Data with Unemployment.ipynb`)
+
+```{r}
+grpd_demog_county <- read.csv(paste0(box_data,"agg_claim_info_county_w_retal_v1.csv"))
+grpd_demog_county$n.poc.comp <- grpd_demog_county$n.race - grpd_demog_county$n.white
+grpd_demog_county <- grpd_demog_county[!is.na(grpd_demog_county$fixed_fip),]
+
+
+grpd_demog_county$fixed_fip <- str_pad(grpd_demog_county$fixed_fip, 
+                                       width = 5, side = "left",
+                                       pad = "0")
+#https://www2.census.gov/geo/maps/general_ref/us_base/stco2010/USstcou2010_wallmap.pdf
+#https://www2.census.gov/geo/maps/general_ref/us_base/stco2010/USstcou2010_wallmap.pdf
+acs_data <- read.csv(paste0(box_data, "emp_pop_data_05_14.csv"))
+acs_data <- acs_data %>% 
+  select(state, county, ends_with("1014")) %>% 
+  rename_with(~str_remove(.x, "[_]1014"), ends_with("1014")) %>% 
+  mutate(fixed_fip = str_c(str_pad(state, width=2,pad="0",side="left"),
+                           str_pad(county, width=3,pad="0",side="left")))
+#emp_pop_data_05_14.csv
+# acs_data["fixed_fip"] <- str_pad(acs_data$fixed_fip, width = 5, side = "left",
+#                                  pad = "0")
+acs_data["in_df"] <- acs_data$fixed_fip %in% grpd_demog_county$fixed_fip
+#table(acs_data$in_df)
+#acs_data %>% filter(in_df==F)#these are mostly in PR
+grpd_demog_county <- left_join(grpd_demog_county, acs_data, by = "fixed_fip")
+
+```
+
+```{r}
+ideol <- read_dta(paste0(box_data, "aip_counties_ideology_v2022a.dta"))
+ideol["fixed_fip"] <- str_pad(ideol$county_fips, width = 5, side = "left",
+                                  pad = "0")
+ideol <- ideol %>% 
+  filter(survey_period == "2004-2011")
+#there are some "duplicates" that actually have the same information for all columns except democratic vote share.
+dups <- ideol %>% 
+  dplyr::group_by(fixed_fip, survey_period) %>%
+  dplyr::summarise(n = dplyr::n(), .groups = "drop") %>%
+  dplyr::filter(n > 1L) 
+
+dup.insp <- ideol %>% filter(fixed_fip %in% dups$fixed_fip)
+#View(dup.insp)
+
+ideol <- ideol %>% 
+  group_by(fixed_fip) %>% 
+  filter(!duplicated(survey_period)) %>% #remove duplicate records
+  ungroup()
+```
+
+```{r}
+grpd_demog_county <- left_join(grpd_demog_county, ideol, by= "fixed_fip")
+```
+
+
+# Read in merged EEOC Census data file and run analyses
+
+Get descriptive information:
+
+```{r}
+orig.df <- grpd_demog_county
+```
+
+
+```{r, results = "asis"}
+
+cat("total complaints (w retal): ")
+cat(number(sum(grpd_demog_county$n.complaints), big.mark = ","))
+cat("  \nexcluded bc retaliation: ")
+no.retal.comps <- sum(grpd_demog_county$n.complaints.noretal)
+cat(number(sum(grpd_demog_county$n.complaints)-no.retal.comps,big.mark = ","))
+cat("  \nfailed geocode (without retal) ")
+nfail <- sum(grpd_demog_county$n.complaints.noretal[grpd_demog_county$fixed_fip=="FAILED"])
+cat(nfail)
+cat("  \n")
+cat(percent(nfail/no.retal.comps, accuracy = .01))
+grpd_demog_county <- grpd_demog_county[grpd_demog_county$fixed_fip!= "FAILED",]
+
+before_exclude <- nrow(grpd_demog_county)
+no_comp_df <- grpd_demog_county[grpd_demog_county$n.complaints.noretal==0,]
+cat("  \naverage population of counties without any complaints: ")
+cat(mean(no_comp_df$total_pop, na.rm=T))
+cat("  \nrange of population for counties without any complaints: ")
+cat(range(no_comp_df$total_pop))
+cat("  \nno complaints in county: ")
+cat(nrow(no_comp_df))
+#temporary dataset for robustness check including 0 claim counties
+grpd_rbst <- grpd_demog_county %>% 
+  filter(!is.na(mrp_ideology))
+grpd_demog_county<-grpd_demog_county[grpd_demog_county$n.complaints.noretal>0,]
+
+no_cons <-  grpd_demog_county %>% 
+  filter(is.na(mrp_ideology))
+grpd_demog_county <- grpd_demog_county %>% 
+  filter(!is.na(mrp_ideology))
+cat("  \nnumber of counties without conservatism score: ")
+cat(nrow(no_cons))
+cat("  \nnumber of cases without conservatism score: ")
+cat(sum(no_cons$n.complaints.noretal, na.rm=T))
+cat("  \n")
+cat("Final num. of non-retaliation complaints: ")
+cat(sum(grpd_demog_county$n.complaints.noretal))
+cat("  \nFinal num. of counties: ")
+cat(nrow(grpd_demog_county))
+
+cat("  \nnum complaints no retal: ")
+cat(sum(grpd_demog_county$n.complaints.noretal))
+cat("  \nnum anti-white discrimination complaints: ")
+cat(sum(grpd_demog_county$n.white))
+cat("  \npercent anti-white discrimination complaints no retal: ")
+cat(sum(grpd_demog_county$n.white)/sum(grpd_demog_county$n.complaints.noretal))
+
+grpd_demog_county["prop_white_comp"] <- (grpd_demog_county$n.white/grpd_demog_county$n.complaints.noretal)*100
+grpd_demog_county$prop_white_comp[grpd_demog_county$n.white==0] <- 0
+
+grpd_rbst["prop_white_comp"] <- (grpd_rbst$n.white/grpd_rbst$n.complaints.noretal)*100
+grpd_rbst$prop_white_comp[grpd_rbst$n.white==0] <- 0
+
+grpd_demog_county["sqrt_prop_white"] <- sqrt(grpd_demog_county$prop_white_comp)
+
+```
+
+
+```{r}
+grpd_demog_county <- grpd_demog_county %>% 
+  mutate(acs_nonwhite_prop=percent_poc,
+         acs_unemploy_white=white_unemp_rate)
+grpd_rbst <- grpd_rbst %>% 
+  mutate(acs_nonwhite_prop=percent_poc,
+         acs_unemploy_white=white_unemp_rate)
+```
+
+
+```{r}
+grpd_demog_county$log_total_pop <- log(grpd_demog_county$total_pop)
+```
+
+
+```{r}
+#create a pretty correlation table
+graph_county <- grpd_demog_county %>% 
+  dplyr::select(prop_white_comp,
+                acs_nonwhite_prop,
+                acs_unemploy_white,
+                mrp_ideology,
+                log_total_pop) %>% 
+  dplyr::rename(`Anti-white claim prevalence` = prop_white_comp,
+                `Percent POC` = acs_nonwhite_prop,
+                `White unemployment` = acs_unemploy_white,
+                `Conservatism` = mrp_ideology,
+                `Total population`=log_total_pop)
+ms <- graph_county %>% 
+  summarise(across(everything(),
+                   mean)) %>% 
+  pivot_longer(everything()) %>% 
+  rename(Mean = value)
+sds <- graph_county %>% 
+  summarise(across(everything(),
+                   sd)) %>% 
+  pivot_longer(everything()) %>% 
+  rename(`Std. Dev` = value) 
+rg <- graph_county %>% 
+  summarise(across(everything(),
+                   range)) %>% 
+  mutate(desig = c("min", "max")) %>% 
+  pivot_longer(!desig) %>% 
+  pivot_wider(id_cols = name, values_from=value, names_from=desig) %>% 
+  mutate(Range = str_c(number(min, accuracy = .01), ", ", number(max, accuracy = .01)))
+descriptives <- cbind(ms, sds %>% 
+                        select(-name), 
+                      rg %>% 
+                        select(-name))
+descriptives <- descriptives %>% 
+  mutate(`M (SD)` = str_c(number(Mean, accuracy = .01), 
+                          " (", 
+                          number(`Std. Dev`, accuracy=.01), ")")) %>% 
+  select(all_of(c("name", "M (SD)", "Range")))
+
+cor.res <- data.frame(apa.cor.table(as.matrix(graph_county))$table.body)
+cor.res <- cor.res %>% 
+  filter(str_starts(Variable, "\\d+[.]")) %>% 
+  mutate(name = str_remove(Variable, "\\d+[.] ")) %>% 
+  left_join(descriptives, by="name") %>% 
+  select(-name, -M, -SD) %>% 
+  select(Variable, `M (SD)`, Range, starts_with("X")) %>% 
+  rename_with(~str_remove(.x, "X"))
+
+f <- cor.res %>% 
+  flextable() 
+f
+write.csv(cor.res, paste0(output, "correlation_descriptives_v1.csv"))
+```
+
+Compare normality of residuals for transformed and untransformed outcome variable:
+
+```{r}
+m0.ut <- lm(prop_white_comp~acs_nonwhite_prop+mrp_ideology+log_total_pop+acs_unemploy_white,
+            data=grpd_demog_county)
+resid.ut <- m0.ut$residuals
+m1 <- lm(sqrt_prop_white~acs_nonwhite_prop+mrp_ideology+log_total_pop+acs_unemploy_white,
+            data=grpd_demog_county)
+resid.m1 <- m1$residuals
+
+resids <- data.frame(resid.ut,
+                     resid.m1) %>% 
+  pivot_longer(everything())
+
+resid.plots <- resids %>%
+  mutate(Outcome = recode(name, 
+                       resid.m1 = "Transformed", 
+                       resid.ut = "Untransformed")) %>% 
+  ggplot(aes(value))+
+  geom_histogram(binwidth = .1)+
+  facet_wrap(vars(Outcome))+
+  labs(x = "Residuals", y = "Frequency", 
+       title = "Residual Distribution: Transformed vs. Untransformed Outcome")+
+  theme_bw()+
+  theme(panel.grid.major=element_blank(),
+          panel.grid.minor=element_blank(),
+          legend.key = element_blank(),
+        strip.text.x = element_text(size=12),
+        text = element_text(family="Times"),
+          axis.text=element_text(size=12),
+          title = element_text(size = 10),
+        legend.text = element_text(size=12))
+resid.plots
+#save_plot(paste0(output, "residual_comparison.png"), resid.plots)
+```
+```{r}
+summary(m0.ut)
+```
+
+
+
+Run the regression analyses:
+
+```{r}
+
+m2 <- lm(prop_white_comp~acs_nonwhite_prop*mrp_ideology+acs_unemploy_white+log_total_pop,
+            data=grpd_demog_county)
+summary(m2)
+sim_slopes(m2,pred="acs_nonwhite_prop",modx="mrp_ideology",confint=T,digits=3)
+m3 <- lm(prop_white_comp~acs_nonwhite_prop*mrp_ideology*acs_unemploy_white+log_total_pop,
+            data=grpd_demog_county)
+summary(m3)
+
+```
+```{r}
+#exploratory for review
+m2a <- lm(prop_white_comp~acs_nonwhite_prop*acs_unemploy_white+mrp_ideology+log_total_pop,
+            data=grpd_demog_county)
+summary(m2a)
+```
+
+```{r}
+#conduct slope difference tests
+mrp_levels <- c((mean(grpd_demog_county$mrp_ideology,
+                                                                na.rm=T)-
+                                                             sd(grpd_demog_county$mrp_ideology,
+                                                                na.rm = T)),
+                                                          (mean(grpd_demog_county$mrp_ideology,
+                                                                na.rm=T)+
+                                                             sd(grpd_demog_county$mrp_ideology,
+                                                                na.rm = T)))
+div_levels <- c((mean(grpd_demog_county$acs_nonwhite_prop)-
+                                                              sd(grpd_demog_county$acs_nonwhite_prop)),
+                                                           (mean(grpd_demog_county$acs_nonwhite_prop)+
+                                                              sd(grpd_demog_county$acs_nonwhite_prop)))
+unemp_levels <- c((mean(grpd_demog_county$acs_unemploy_white)-
+                                                              sd(grpd_demog_county$acs_unemploy_white)),
+                                                           (mean(grpd_demog_county$acs_unemploy_white)+
+                                                              sd(grpd_demog_county$acs_unemploy_white)))
+pair.df <- data.frame()
+m.lst <- lstrends(m2, ~mrp_ideology,
+                  var = "acs_nonwhite_prop",at = list(mrp_ideology=mrp_levels))
+print(pairs(m.lst))
+tmp.pairs <- data.frame(pairs(m.lst))
+tmp.pairs <- tmp.pairs %>% 
+  mutate(acs_unemploy_white = NA_character_) %>% 
+  select(contrast, acs_unemploy_white,estimate,SE,df,t.ratio,p.value)
+
+# m.lst <- lstrends(m3, ~mrp_ideology_mean|acs_unemploy_white,
+#                   var = "acs_nonwhite_prop",at = list(mrp_ideology_mean=mrp_levels,
+#                                                       acs_unemploy_white=unemp_levels))
+# print(pairs(m.lst))
+# pair.df <- rbind(tmp.pairs,data.frame(pairs(m.lst)))
+```
+
+
+Format and save regression outputs: 
+
+```{r}
+
+format_regression_table <- function(models,
+                                    reg_fmt = read.csv(paste0(local_data,"regression_format_v1.csv"))){
+  tracker = 1
+  for(m in models){
+    #print(tracker)
+    tmp_res = summary(m)
+    tmp_coef = data.frame(tmp_res$coefficients)
+    tmp_coef[,1] = number(tmp_coef[,1],accuracy = .01)#beta
+    tmp_coef[,2] = number(tmp_coef[,2], accuracy = .01)#SE beta
+    tmp_coef[,4] = sapply(tmp_coef[,4], statstring::format_sig_stars)#p-val
+    tmp_coef[,1] = paste0(tmp_coef[,1], tmp_coef[,4])
+    tmp_coef["Predictor"] = rownames(tmp_coef)
+    mnum = paste0("model", tracker, "_")
+    colnames(tmp_coef) = c(paste0(mnum, c("b", "se_b", "t", "p")), "Predictor")
+    tmp_coef = tmp_coef %>% 
+      select(Predictor, ends_with("_b"), ends_with("se_b"))
+    reg_fmt = left_join(reg_fmt, tmp_coef, by = "Predictor")
+    #print(number(statstring::extract_r2(m),accuracy = .001))
+    reg_fmt[reg_fmt$Predictor == "R2", paste0(mnum, "se_b")] = number(tmp_res$adj.r.squared,
+                                                                       accuracy = .001)
+    if(tracker > 1){
+      mod_aov = anova(models[[tracker - 1]], models[[tracker]])
+      if(is.na(mod_aov$`Pr(>F)`[2])){ #if this is the model with the interaction btwn diversity and white unemployment, compare against model with no interactions
+        mod_aov = anova(models[[1]], models[[tracker]])
+        print(mod_aov)
+      }
+      
+      reg_fmt[reg_fmt$Predictor == "Change in R2", 
+              paste0(mnum, "se_b")] <- paste0(number(mod_aov$`F`[2], accuracy =.01),
+                                              format_sig_stars(mod_aov$`Pr(>F)`[2]))
+    }
+    tracker = tracker + 1
+  }
+  reg_fmt[is.na(reg_fmt)] = "-"
+  return(reg_fmt)
+}
+
+modlist <- list(m0.ut,m2,m2a,m3)
+reg_out <- format_regression_table(modlist)
+
+write.xlsx(reg_out, paste0("outputs/", "regression_outs_no_retal_v2.xlsx"),overwrite = T)
+
+```
+
+
+Examine the interaction:
+
+H2: two-way between conservatism and racial diversity:
+
+
+```{r}
+jn_h2 <- sim_slopes(m2, pred=acs_nonwhite_prop,
+                      modx=mrp_ideology,
+                      modx.values = "plus-minus",
+                      confint=T,jnplot=T)
+jn_h2
+```
+
+
+
+
+```{r}
+#create +/- 1 SD of mean for plots
+cons_levels <- c((mean(grpd_demog_county$mrp_ideology)-
+                    sd(grpd_demog_county$mrp_ideology)),
+                 mean(grpd_demog_county$mrp_ideology),
+                 (mean(grpd_demog_county$mrp_ideology)+
+                    sd(grpd_demog_county$mrp_ideology)))
+unemploy_levels <- c((mean(grpd_demog_county$acs_unemploy_white)-
+                    sd(grpd_demog_county$acs_unemploy_white)),
+                 mean(grpd_demog_county$acs_unemploy_white),
+                 (mean(grpd_demog_county$acs_unemploy_white)+
+                    sd(grpd_demog_county$acs_unemploy_white)))
+div_levels <- c((mean(grpd_demog_county$acs_nonwhite_prop)-
+                    sd(grpd_demog_county$acs_nonwhite_prop)),
+                 mean(grpd_demog_county$acs_nonwhite_prop),
+                 (mean(grpd_demog_county$acs_nonwhite_prop)+
+                    sd(grpd_demog_county$acs_nonwhite_prop)))
+```
+
+Plot H1
+
+```{r}
+intrxn.sd <- effect(c("acs_nonwhite_prop"),
+               mod = m0.ut)
+
+intrxn.sd <- as.data.frame(intrxn.sd)
+m1.sum <- data.frame(summary(m1)$coefficients)
+slope_lab <- paste0("b = ", number(m1.sum$Estimate[2],accuracy = .01),
+                    format_sig_stars(m1.sum$Pr...t..[2]),
+                    " SE = ", number(m1.sum$Std..Error[2],accuracy = .01))
+# Plot this bad boy!
+h1_plot<-
+  intrxn.sd %>% 
+  ggplot(aes(x=acs_nonwhite_prop, y=fit))+
+      geom_line(linewidth=1)+ #Can adjust the thickness of your lines
+      geom_point(size=2)+ #Can adjust the size of your points
+      geom_ribbon(aes(ymin=fit-se, ymax=fit+se),fill="gray",alpha=.4)+ #Can adjust your error bars
+      labs(y = "Anti-White Claim Prevalence",
+           x = "Percent POC")+
+      ggtitle("Model 1: Anti-White Claim Prevalence by POC Representation")+ #Title
+  theme_bw()+
+  geom_text(aes(x = 25, y = .16, label=slope_lab),size=4,family="Times")+
+  theme(panel.grid.major=element_blank(),
+          panel.grid.minor=element_blank(),
+          legend.key = element_blank(),
+          text = element_text(family="Times"),
+          axis.text=element_text(size=10),
+          title = element_text(size = 12))
+
+#save_plot(paste0(output, "h1_plot_v3.png"), h1_plot)
+h1_plot
+```
+
+Plot H2: Claim prevalence by racial diversity and conservatism
+
+```{r}
+
+intrxn.sd <- effect(c("acs_nonwhite_prop*mrp_ideology"),
+               mod = m2, 
+               xlevels = list(mrp_ideology=c(cons_levels[1],cons_levels[3]),
+                              acs_nonwhite_prop=c(div_levels[1],div_levels[3])))
+
+intrxn.sd <- as.data.frame(intrxn.sd)
+mod.labs <- c("-1 SD", "+ 1 SD")
+# Create factors of the different variables in your interaction 
+intrxn.sd$mrp_ideology<-factor(intrxn.sd$mrp_ideology,
+                      levels=c(cons_levels[1],cons_levels[3]),
+                      labels=c("Low Conservatism", "High Conservatism"))
+intrxn.sd$mrp_ideology_rev <- factor(intrxn.sd$mrp_ideology, 
+                                      levels = rev(levels(intrxn.sd$mrp_ideology)))
+format_slope_text <- function(slope.df){
+  new.list = rep("", nrow(slope.df))
+  for(i in 1:nrow(slope.df)){
+    new.list[i] = paste0("b = ", number(slope.df$`Est.`[i],
+                                        accuracy = .01),
+                         format_sig_stars(slope.df$p[i]),
+                         " SE = ", number(slope.df$`S.E.`[i],
+                                             accuracy = .01))
+  }
+  return(new.list)
+}
+m2.slopes <- jn_h2$slopes
+m2.slopes["text"] <- format_slope_text(m2.slopes)
+
+m2.slopes["x"] <- c(25, 28)
+m2.slopes["y"] <- c(2,4.2)
+m2.slopes["mrp_ideology"] <-c("Low Conservatism", "High Conservatism")
+joined <- left_join(intrxn.sd, m2.slopes, by = "mrp_ideology")
+# Plot this bad boy!
+h2_plot<-
+  joined %>% 
+  ggplot(aes(x=acs_nonwhite_prop, y=fit,
+             linetype=mrp_ideology))+
+      geom_line(linewidth=1, aes(linetype=mrp_ideology))+ #Can adjust the thickness of your lines
+      geom_point(size=2)+ #Can adjust the size of your points
+      geom_errorbar(aes(ymin=lower,ymax=upper),width=3)+
+  #geom_ribbon(aes(ymin=fit-se, ymax=fit+se),fill="gray",alpha=.2)+ #Can adjust your error bars
+      labs(colour = "Conservatism", linetype="Conservatism",y = "Anti-White Claim Prevalence",
+           x = "Percent POC")+
+      ggtitle("Model 2: Anti-White Claim Prevalence by\n POC Representation and Conservatism")+ #Title
+  theme_bw()+
+  geom_text(aes(x= x, y = y, label = text),
+            family = "Times",
+            size=4,
+            show.legend = F)+
+  theme(panel.grid.major=element_blank(),
+          panel.grid.minor=element_blank(),
+          legend.key = element_blank(),
+          legend.position="top",
+        legend.title = element_blank(),
+        text = element_text(family="Times"),
+          axis.text=element_text(size=10),
+          title = element_text(size = 12),
+        legend.text = element_text(size=10))
+h2_plot 
+save_plot(paste0("outputs/", "h2_plot_postrr.png"), h2_plot)
+#save_plot("moderation_v1.png", Plot.SD)
+#Plot.SD
+```
+## Robustness --- including 0 counties
+Compare normality of residuals for transformed and untransformed outcome variable:
+
+```{r}
+grpd_rbst$log_total_pop <- log(grpd_rbst$total_pop)
+
+m0.ut <- lm(prop_white_comp~acs_nonwhite_prop+mrp_ideology+log_total_pop+acs_unemploy_white,
+            data=grpd_rbst)
+resid.ut <- m0.ut$residuals
+m1 <- lm(sqrt_prop_white~acs_nonwhite_prop+mrp_ideology+log_total_pop+acs_unemploy_white,
+            data=grpd_rbst)
+resid.m1 <- m1$residuals
+
+resids <- data.frame(resid.ut,
+                     resid.m1) %>% 
+  pivot_longer(everything())
+
+resid.plots <- resids %>%
+  mutate(Outcome = recode(name, 
+                       resid.m1 = "Transformed", 
+                       resid.ut = "Untransformed")) %>% 
+  ggplot(aes(value))+
+  geom_histogram(binwidth = .1)+
+  facet_wrap(vars(Outcome))+
+  labs(x = "Residuals", y = "Frequency", 
+       title = "Residual Distribution: Transformed vs. Untransformed Outcome")+
+  theme_bw()+
+  theme(panel.grid.major=element_blank(),
+          panel.grid.minor=element_blank(),
+          legend.key = element_blank(),
+        strip.text.x = element_text(size=12),
+        text = element_text(family="Times"),
+          axis.text=element_text(size=12),
+          title = element_text(size = 10),
+        legend.text = element_text(size=12))
+resid.plots
+#save_plot(paste0(output, "residual_comparison.png"), resid.plots)
+```
+```{r}
+summary(m0.ut)
+```
+
+
+
+Run the regression analyses:
+
+```{r}
+
+m2 <- lm(prop_white_comp~acs_nonwhite_prop*mrp_ideology+acs_unemploy_white+log_total_pop,
+            data=grpd_rbst)
+summary(m2)
+sim_slopes(m2,pred="acs_nonwhite_prop",modx="mrp_ideology",confint=T,digits=3)
+m3 <- lm(prop_white_comp~acs_nonwhite_prop*mrp_ideology*acs_unemploy_white+log_total_pop,
+            data=grpd_rbst)
+summary(m3)
+
+```
+```{r}
+#exploratory for review
+m2a <- lm(prop_white_comp~acs_nonwhite_prop*acs_unemploy_white+mrp_ideology+log_total_pop,
+            data=grpd_rbst)
+summary(m2a)
+```
+
+## Robustness: Overall unemployment
+
+This is a robustness check testing whether overall unemployment (rather than White-specific unemployment) strengthens the amplifying effect of conservatism on the diversity-anti-White claims link.
+
+```{r}
+m1 <- lm(prop_white_comp~acs_nonwhite_prop+mrp_ideology+log_total_pop+total_unemp_rate,
+            data=grpd_demog_county)
+summary(m1)
+m2 <- lm(prop_white_comp~acs_nonwhite_prop*mrp_ideology+total_unemp_rate+log_total_pop,
+            data=grpd_demog_county)
+summary(m2)
+sim_slopes(m2,pred="acs_nonwhite_prop",modx="mrp_ideology",confint=T,digits=3)
+m2a <- lm(prop_white_comp~acs_nonwhite_prop*total_unemp_rate+mrp_ideology+log_total_pop,
+            data=grpd_demog_county)
+summary(m2a)
+
+m3 <- lm(prop_white_comp~acs_nonwhite_prop*mrp_ideology*total_unemp_rate+log_total_pop,
+            data=grpd_demog_county)
+summary(m3)
+```
+
+```{r}
+reg_fmt_tmp <- read.csv(paste0(local_data,"regression_format_v1.csv"))
+reg_fmt_tmp <- reg_fmt_tmp %>% 
+  mutate(across(everything(), 
+                ~str_replace_all(.x, "acs_unemploy_white", "total_unemp_rate"))) %>% 
+  mutate(across(everything(), 
+                ~str_replace_all(.x, "White unemployment", "All unemployment")))
+
+modlist <- list(m1,m2,m2a,m3)
+reg_out <- format_regression_table(modlist, reg_fmt=reg_fmt_tmp)
+
+# num_line <- rep("", ncol(reg_out))
+# num_line[1] <- paste0("N = ",number(nrow(grpd_demog_county), big.mark=","))
+# reg_out <- rbind(reg_out, num_line)
+write.xlsx(reg_out, paste0(output,
+                           "robustness_all_unemploy_v2.xlsx"),overwrite = T)
+```
+
+?## Robustness: Predicting 2007-2011 claims with 2007-2011 ACS data and 2006-2011 Conservatism
+
+
+```{r}
+grpd.period <- read.csv(paste0(box_data, "long_annual_claims_dataset.csv"))
+grpd.period <- grpd.period %>%  #filter for target years
+  filter(complaint_year > 2006) %>% 
+  filter(complaint_year < 2012)
+
+grpd.period$fixed_fip <- str_pad(grpd.period$fixed_fip, width = 5, side = "left", pad="0")
+grpd.wide <- grpd.period %>% 
+  group_by(fixed_fip) %>% 
+  summarise(n.white = sum(n.white,na.rm=T),
+            n.race = sum(n.race,na.rm=T),
+            n.no.retal = sum(n.no.retal, na.rm=T),
+            n.complaints = sum(n.complaints, na.rm=T),
+            prop.white.comp = (sum(n.white)/sum(n.no.retal))*100) %>% 
+  ungroup() %>% 
+  filter(fixed_fip != "FAILED")
+
+#gather 2007-2011 ACS variables
+acs.variables <- read.xlsx(paste0(box_data, "census_variable_guide.xlsx"))
+
+old.acs <- tidycensus::get_acs(geography = "county",
+                            variables = acs.variables$original_name,
+                            year=2011)
+old.acs.1 <- old.acs %>% 
+  pivot_wider(id_cols=GEOID, names_from = variable,
+              values_from = estimate) %>% 
+  rename_with(~str_c(.x, "E"), .cols=-GEOID) %>% 
+  select(-DP03_0009E) %>% 
+  rename(DP03_0009E = DP03_0009PE)
+
+rename.list <- acs.variables$original_name[acs.variables$original_name %in% colnames(old.acs.1)]
+names(rename.list) <- acs.variables$new_name[acs.variables$original_name %in% colnames(old.acs.1)]
+
+old.acs.1 <- old.acs.1 %>% 
+  rename(!!!rename.list)
+old.acs.1$fixed_fip <- old.acs.1$GEOID
+old.acs.1 <- old.acs.1 %>% 
+  mutate(total_white_inlf = (white_females_inlfo+
+                               white_females_inlfy+
+                               white_males_inlfy+
+                               white_males_inlfo),
+         total_white_unem = (white_females_inlf_unemy+
+                               white_females_inlf_unemo+
+                               white_males_inlf_unemy+
+                               white_males_inlf_unemo),
+         white_unemp_rate = (total_white_unem/total_white_inlf)*100,
+         percent_white = (total_white/total_pop)*100,
+         percent_poc = 100-percent_white)
+
+
+merged.grp <- left_join(grpd.wide, old.acs.1, by = "fixed_fip")
+nrow(merged.grp %>% filter(n.no.retal==0))
+#2 counties had no complaints, remove them
+merged.grp <- merged.grp %>% 
+  filter(n.no.retal>0)
+
+#updated ideology dataset: 
+#https://dataverse.harvard.edu/file.xhtml?fileId=6690216&version=1.0
+ideol <- read_dta(paste0(box_data, "aip_counties_ideology_v2022a.dta"))
+ideol["fixed_fip"] <- str_pad(ideol$county_fips, width = 5, side = "left",
+                                  pad = "0")
+ideol <- ideol %>% 
+  filter(presidential_year == 2008)
+
+merged.grp <- left_join(merged.grp, ideol, by = "fixed_fip")
+nrow(merged.grp %>% filter(is.na(mrp_ideology)))
+#3 counties are missing conservatism scores--these are counties that were renamed after our study period ends (so the conservatism scores here are using a more recent Census boundary than our data)
+merged.grp <- merged.grp %>% 
+  filter(!is.na(mrp_ideology))
+
+```
+
+```{r}
+merged.grp$log.total.pop <- log(merged.grp$total_pop)
+```
+
+Run models
+
+```{r}
+m1 <- lm(prop.white.comp~log.total.pop+white_unemp_rate+mrp_ideology+percent_poc, merged.grp)
+summary(m1)
+
+m2 <- lm(prop.white.comp~log.total.pop+white_unemp_rate+percent_poc*mrp_ideology, merged.grp)
+summary(m2)
+
+m2a <- lm(prop.white.comp~log.total.pop+white_unemp_rate*percent_poc+mrp_ideology, merged.grp)
+summary(m2a)
+
+m3 <- lm(prop.white.comp~log.total.pop+white_unemp_rate*percent_poc*mrp_ideology, merged.grp)
+summary(m3)
+```
+Format outputs
+
+```{r}
+p_load(sjPlot)
+tab_model(m1,m2,m2a,m3, show.se=T,show.ci=F,std.response = F)
+```
+
+
+
+

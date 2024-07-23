@@ -3,7 +3,8 @@ p_load(haven,tidyverse,stats,openxlsx,readxl,scales)
 setwd("~/Documents/EEOC-AWD")
 source("utils.R")
 box_data <- "../../Library/CloudStorage/Box-Box/EEOC data/"
-
+filter <- dplyr::filter
+select <- dplyr::select
 ### Cleaning ----
 df <- read_dta(paste0(box_data, 'EEOC_allegations_charges.dta'))
 df["complaint_year"] <- str_extract(df$charge_filing_date, "\\d\\d\\d\\d")
@@ -57,6 +58,19 @@ df <- df %>%
                                  .default="multi-race"),
          cp_hispanic_recode = recode(hispanic, Y = 1, .default = 0))
 
+#look at reasons for allegations about race by broad category
+race.only <- df %>% 
+  filter(is_race==T)
+counts.by <- data.frame(table(race.only$issue,race.only$white))
+counts.by.wide <- counts.by %>% 
+  mutate(Var2 = if_else(Var2 == 0, "poc", "white")) %>% 
+  pivot_wider(id_cols=Var1,values_from=Freq, names_from=Var2)
+counts.by.wide$poc.percent <- counts.by.wide$poc/sum(counts.by.wide$poc)
+counts.by.wide$white.percent <- counts.by.wide$white/sum(counts.by.wide$white)
+#save counts of reasons for claims
+#see here for descriptions of issues: https://www.eeoc.gov/prohibited-employment-policiespractices
+write.csv(counts.by.wide, paste0(box_data, "basis_by_racialgroup.csv"))
+
 ### Clean location ----
 location_columns <- c("respondent_zip", "respondent_county",
                       "respondent_state", "respondent_city")
@@ -66,6 +80,8 @@ df <- df %>%
                 .names="{.col}_nn")) %>% 
   mutate(across(all_of(paste0(location_columns, "_nn")),
                 ~na_if(.x,"")))
+
+
 #fix any places that have the zip code listed as the city
 df["respondent_zip_nn"] <- ifelse(!is.na(df$respondent_zip_nn),
                              df$respondent_zip_nn,
@@ -152,6 +168,7 @@ attitudes["fixed_fip"] <- str_pad(attitudes$county_fips, width = 5, side = "left
 merge_zips["fixed_fip"] <- str_pad(merge_zips$state_county_fips, width = 5, side = "left",
                                    pad = "0")
 merge_zips$fixed_fip[is.na(merge_zips$state_county_fips)]<-"FAILED"
+merge_zips$complaint_year <- as.numeric(merge_zips$complaint_year)
 
 grpd_complaints <- merge_zips %>% 
   dplyr::group_by(fixed_fip) %>% 
@@ -176,7 +193,6 @@ write.csv(grpd_complaints_att,
           paste0(box_data, "agg_claim_info_county_w_retal_v1.csv"))
 
 #generate robustness check dataset ----
-merge_zips$complaint_year <- as.numeric(merge_zips$complaint_year)
 
 grpd_complaints_robust <- merge_zips %>% 
   filter(complaint_year > 2009 & complaint_year < 2015) %>% 
@@ -198,5 +214,41 @@ grpd_complaints_robust_att <- rbind(grpd_complaints_robust_att,extra_counties)
 #save robustness check dataset ----
 write.csv(grpd_complaints_robust_att,
           paste0(box_data, "agg_claim_info_county_w_retal_robust.csv"))
+
+# generate year over year dataset ----
+merge_zips$complaint_year <- as.numeric(merge_zips$complaint_year)
+grpd.year.long <- grpd.year <- merge_zips %>% 
+  filter(!is.na(complaint_year)) %>% 
+  dplyr::group_by(fixed_fip, complaint_year) %>% 
+  dplyr::summarise(included_states = paste0(unique(respondent_state_nn),collapse="|"),
+                   orig_county = paste0(unique(respondent_county_nn.y), collapse="|"),
+                   n.white = sum(white),
+                   n.complaints = n(),
+                   n.retal= sum(is_retaliation),
+                   n.race = sum(is_race),
+                   n.no.retal = n.complaints - n.retal,
+                   prop.white.noret = n.white/n.no.retal,
+                   prop.white.ret = n.white/n.complaints) %>% 
+  ungroup()
+write.csv(grpd.year.long, paste0(box_data, "long_annual_claims_dataset.csv"))
+grpd.year <- merge_zips %>% 
+  filter(!is.na(complaint_year)) %>% 
+  dplyr::group_by(fixed_fip, complaint_year) %>% 
+  dplyr::summarise(included_states = paste0(unique(respondent_state_nn),collapse="|"),
+                   orig_county = paste0(unique(respondent_county_nn.y), collapse="|"),
+                   n.white = sum(white),
+                   n.complaints = n(),
+                   n.retal= sum(is_retaliation),
+                   n.race = sum(is_race),
+                   n.no.retal = n.complaints - n.retal,
+                   prop.white.noret = n.white/n.no.retal,
+                   prop.white.ret = n.white/n.complaints) %>% 
+  ungroup() %>% 
+  pivot_wider(id_cols=fixed_fip,
+              names_from=complaint_year,
+              values_from=c(n.white,n.complaints,n.retal,n.race,
+                            included_states,orig_county, prop.white.noret, prop.white.ret))
+View(grpd.year)
+write.csv(grpd.year, paste0(box_data, "wide_annual_claims_dataset.csv"))
 
 

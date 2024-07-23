@@ -1,0 +1,12 @@
+﻿Predictor,Predictor_pretty
+(Intercept),Intercept
+acs_nonwhite_prop,POC representation
+mrp_ideology,Conservatism
+acs_unemploy_white,White unemployment
+log_total_pop,Total population (log-transformed)
+acs_nonwhite_prop:mrp_ideology,POC representation x Conservatism
+acs_nonwhite_prop:acs_unemploy_white,POC representation x White unemployment
+mrp_ideology:acs_unemploy_white,Conservatism x White unemployment
+acs_nonwhite_prop:mrp_ideology:acs_unemploy_white,POC representation x Conservatism x White unemployment
+R2,R2
+Change in R2,Change in R2

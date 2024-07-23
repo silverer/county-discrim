@@ -1,0 +1,13 @@
+Predictor,Pretty.Predictor
+(Intercept),Intercept
+prop.white.comp_0509,White claim prevalence (2005-2009)
+log_total_pop_0509,Total population (2005-2009)
+white_unemp_rate_0509,White unemployment rate (2005-2009)
+percent_poc_0509,% POC in county (2005-2009)
+cons_0411,Conservatism (2006-2011)
+percent_poc_0509:cons_0411,% POC X Conservatism
+white_unemp_rate_0509:percent_poc_0509,% POC X White unemp.
+white_unemp_rate_0509:cons_0411,White unemp. X Conservatism
+white_unemp_rate_0509:percent_poc_0509:cons_0411,% POC X Conservatism X White unemp.
+R2,
+Change in R2,
