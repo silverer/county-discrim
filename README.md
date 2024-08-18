@@ -15,7 +15,7 @@ This study examines county-level contextual factors associated with the prevalen
 This section describes the data files referenced in the code. To respect copyright and privacy, we do not include any raw data or reproduce any publicly available datasets in this repository. Within the code, we link to a cloud storage folder mounted on personnel endpoints by specifying the cloud file path at the beginning of every code file. 
 
 
-### Equal Employment Opportunity Commission (EEOC) Data
+### Claims Data
 
 
 This project uses a restricted-use dataset from the U.S. Equal Employment Opportunity Commission obtained via special request to the agency by Dr. Paul Treacy. The data include all EEOC complaints filed between 2005-2016 To maintain confidentiality, we are unable to make the EEOC data files available. 
