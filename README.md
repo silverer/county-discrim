@@ -1,4 +1,4 @@
-# Effects of Diversity, Ideology, and Economic Threat on Anti-White Discrimination Claims
+# Regional Correlates of Majority Group Discrimination Claims
 
 By [Elisabeth R. Silver](es61@rice.edu), [Paul Treacy](paulctreacy@gmail.com), & [Mikki Hebl](hebl@rice.edu)
 
