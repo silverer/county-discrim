@@ -318,7 +318,7 @@ tmp.pairs <- tmp.pairs %>%
 ```
 
 
-Format and save regression outputs: 
+Format and save regression outputs (note that output file needs to be modified to reflect model comparison between m2 and m3, rather than m2a and m3): 
 
 ```{r}
 
@@ -361,10 +361,15 @@ format_regression_table <- function(models,
 
 modlist <- list(m0.ut,m2,m2a,m3)
 reg_out <- format_regression_table(modlist)
-
+#NOTE: the output will have erroneous info for the model comparison for m3, because it is comparing m3 to m2a (rather than m3 to m2). This is changed by hand after saving the file in Excel.
 write.xlsx(reg_out, paste0("outputs/", "regression_outs_no_retal_v2.xlsx"),overwrite = T)
 
 ```
+
+```{r}
+anova(m2,m3)
+```
+
 
 
 Examine the interaction:
@@ -409,10 +414,10 @@ intrxn.sd <- effect(c("acs_nonwhite_prop"),
                mod = m0.ut)
 
 intrxn.sd <- as.data.frame(intrxn.sd)
-m1.sum <- data.frame(summary(m1)$coefficients)
-slope_lab <- paste0("b = ", number(m1.sum$Estimate[2],accuracy = .01),
-                    format_sig_stars(m1.sum$Pr...t..[2]),
-                    " SE = ", number(m1.sum$Std..Error[2],accuracy = .01))
+m0.ut <- data.frame(summary(m0.ut)$coefficients)
+slope_lab <- paste0("b = ", number(m0.ut$Estimate[2],accuracy = .01),
+                    format_sig_stars(m0.ut$Pr...t..[2]),
+                    " SE = ", number(m0.ut$Std..Error[2],accuracy = .01))
 # Plot this bad boy!
 h1_plot<-
   intrxn.sd %>% 
@@ -424,7 +429,7 @@ h1_plot<-
            x = "Percent POC")+
       ggtitle("Model 1: Anti-White Claim Prevalence by POC Representation")+ #Title
   theme_bw()+
-  geom_text(aes(x = 25, y = .16, label=slope_lab),size=4,family="Times")+
+  geom_text(aes(x = 25, y = 1, label=slope_lab),size=4,family="Times")+
   theme(panel.grid.major=element_blank(),
           panel.grid.minor=element_blank(),
           legend.key = element_blank(),
@@ -432,7 +437,7 @@ h1_plot<-
           axis.text=element_text(size=10),
           title = element_text(size = 12))
 
-#save_plot(paste0(output, "h1_plot_v3.png"), h1_plot)
+save_plot(paste0(output, "h1_plot_bw.png"), h1_plot)
 h1_plot
 ```
 
@@ -502,6 +507,84 @@ save_plot(paste0("outputs/", "h2_plot_postrr.png"), h2_plot)
 #save_plot("moderation_v1.png", Plot.SD)
 #Plot.SD
 ```
+
+
+```{r}
+intrxn.sd <- as.data.frame(effect(c("acs_nonwhite_prop*mrp_ideology*acs_unemploy_white"),
+               mod = m3, 
+               xlevels = list(mrp_ideology=c(cons_levels[1],cons_levels[3]),
+                              acs_unemploy_white=c(unemploy_levels[1], unemploy_levels[3]))))
+mod.labs <- c("-1 SD", "+ 1 SD")
+# Create factors of the different variables in your interaction 
+intrxn.sd$mrp_ideology<-factor(round(intrxn.sd$mrp_ideology,2),
+                      levels=c(round(cons_levels[1], 2),round(cons_levels[3],2)),
+                      labels=c("Low Conservatism", "High Conservatism"))
+intrxn.sd$mrp_ideology_rev <- factor(intrxn.sd$mrp_ideology, 
+                                      levels = rev(levels(intrxn.sd$mrp_ideology)))
+
+intrxn.sd$acs_unemploy_white<-factor(intrxn.sd$acs_unemploy_white,
+                      levels=c(unemploy_levels[1], unemploy_levels[3]),
+                      labels=c("Low White Unemployment", "High White Unemployment"))
+intrxn.sd$acs_unemploy_white_rev <- factor(intrxn.sd$acs_unemploy_white, 
+                                      levels = rev(levels(intrxn.sd$acs_unemploy_white)))
+jn_h3 <- sim_slopes(m3, pred=acs_nonwhite_prop,
+                      modx=mrp_ideology,
+                      modx.values = "plus-minus",
+                    mod2 = acs_unemploy_white,
+                    mod2.values = "plus-minus",
+                      confint=T,jnplot=T)
+
+m3.slopes <- data.frame(jn_h3$slopes[[1]])
+m3.slopes["acs_unemploy_white"] <- "Low White Unemployment"
+tmp.slopes <- data.frame(jn_h3$slopes[[2]])
+tmp.slopes["acs_unemploy_white"] <- "High White Unemployment"
+m3.slopes <- rbind(m3.slopes, tmp.slopes)
+m3.slopes["mrp_ideology"] <- c("Low Conservatism", "High Conservatism",
+                                    "Low Conservatism", "High Conservatism")
+m3.slopes["text"] <- format_slope_text(m3.slopes)
+#low white unemploy, low cons; low white unemploy, high cons; 
+#high white unemploy low cons; high white unemploy, high cons
+m3.slopes["x"] <- c(55, 30,55,30)
+m3.slopes["y"] <- c(2,7,2,9)
+
+joined <- left_join(intrxn.sd, m3.slopes, by = c("mrp_ideology", "acs_unemploy_white"))
+joined$acs_unemploy_white <- factor(joined$acs_unemploy_white,
+                                        levels = c("Low White Unemployment","High White Unemployment"))
+
+# Plot this bad boy!
+Plot.SD<-
+  joined %>% 
+  ggplot(aes(x=acs_nonwhite_prop, y=fit, 
+             group=mrp_ideology_rev))+
+      geom_line(size=1, aes(linetype=mrp_ideology_rev))+ 
+      geom_point(size=2)+ 
+      facet_wrap(~acs_unemploy_white)+
+      geom_ribbon(aes(ymin=fit-se, ymax=fit+se),
+                  fill="gray",alpha=.2)+ 
+      labs(color = "Conservatism", y = "Anti-White Claim Prevalence",
+           x = "Percent POC")+
+      ggtitle("Anti-White Claim Prevalence by County\nRacial Diversity, Conservatism, and White Unemployment")+ #Title
+  theme_bw()+
+  geom_text(aes(x= x, y = y, label = text),
+            show.legend = F,family="Times",size=4)+
+      theme(panel.grid.major=element_blank(),
+          panel.grid.minor=element_blank(),
+          legend.key = element_blank(),
+          legend.position="top",
+        legend.title = element_blank(),
+        legend.text = element_text(size=9),
+        text = element_text(family="Times"),
+          axis.text=element_text(size=10),
+          title = element_text(size = 12),
+        strip.text.x = element_text(size = 10))
+
+save_plot(paste0(output, "h3_plot_paper_bw.png"), Plot.SD)
+#save as .tiff
+#save_plot(paste0(output, "h3_plot_paper_bw.tiff"), Plot.SD)
+Plot.SD
+```
+
+
 ## Robustness --- including 0 counties
 Compare normality of residuals for transformed and untransformed outcome variable:
 
