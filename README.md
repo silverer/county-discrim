@@ -108,14 +108,14 @@ Contains your Census API key, saved as `CENSUS_KEY = [YOUR_KEY_HERE]`
 
 Imports user-generated `utils.R`.
 
-Cleans the raw EEOC data, generates a dataset of unique locations, merges the geocoded locations with the claims dataset (after running `Geocode EEOC Complaints.ipynb`), aggregates the data at the county level, and merges aggregated data with ideology dataset. 
+Cleans the raw EEOC data, generates a dataset of unique locations, merges the geocoded locations with the claims dataset (after running `Geocode Complaints.ipynb`), aggregates the data at the county level, and merges aggregated data with ideology dataset. 
 
 
-4. `Geocode EEOC Complaints.ipynb`
+4. `Geocode Complaints.ipynb`
 
 Imports user-generated `utils.py` and `tokens.py`.
 
-Creates a crosswalk mapping unique EEOC charge numbers onto state and county FIPS codes. Also generates a file with locations that failed to geocode.
+Creates a crosswalk mapping unique charge numbers onto state and county FIPS codes. Also generates a file with locations that failed to geocode.
 
 
 5. `Get Census Data for Merge.ipynb`
