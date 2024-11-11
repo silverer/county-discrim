@@ -1,18 +1,18 @@
 # Regional Correlates of Majority Group Discrimination Claims
 
-By [Elisabeth R. Silver](es61@rice.edu), [Paul Treacy](paulctreacy@gmail.com), & [Mikki Hebl](hebl@rice.edu)
+By [Elisabeth R. Silver](es61@rice.edu), [Mikki Hebl](hebl@rice.edu), & [Paul Treacy](paulctreacy@gmail.com)
 
 *Rice University, Houston, TX, USA*
 
 
 This paper is currently in the publication process.
 
-This study examines county-level contextual factors associated with the prevalence of formal allegations of discrimination against White employees.
+This study examines county-level contextual factors associated with the prevalence of formal discrimination complaints from demographic majority group members.
 
 ## Data Overview
 
 
-This section describes the data files referenced in the code. To respect copyright and privacy, we do not include any raw data or reproduce any publicly available datasets in this repository. Within the code, we link to a cloud storage folder mounted on personnel endpoints by specifying the cloud file path at the beginning of every code file. 
+This section describes the data files referenced in the code. To respect copyright and privacy, we do not include any raw data or reproduce any publicly available datasets in this repository. 
 
 
 ### Claims Data
@@ -42,9 +42,9 @@ We use a publicly available dataset from [the American Ideology Project](https:/
 ### U.S. Census Data
 
 
-We use public-use data from the U.S. Census Bureau's [American Community Survey (ACS)](https://www.census.gov/data/developers/data-sets/acs-5year.html) five-year estimates spanning years 2010-2014 (used as predictors in the primary analysis) and five-year estimates spanning years 2005-2009 (used as predictors in the exploratory temporal analysis). Data are retrieved using the Census' open-source Application Programming Interface (API). Variables include white unemployment rate, percent of county residents who are not non-Hispanic white, total population, and overall unemployment rate. Data curation is implemented in Python 3.8 in the notebook titled `Get Census Data for Merge.ipynb`. The  dataset is named as `emp_pop_data_05_14.csv`.
+We use public-use data from the U.S. Census Bureau's [American Community Survey (ACS)](https://www.census.gov/data/developers/data-sets/acs-5year.html) five-year estimates spanning years 2010-2014 (used as predictors in the primary analysis) and five-year estimates spanning years 2005-2009 (used as predictors in the exploratory temporal analysis). Data are retrieved using the Census' open-source Application Programming Interface (API). Variables include White unemployment rate, percent of county residents who are not non-Hispanic White, total population, and overall unemployment rate. Data curation is implemented in Python 3.8 in the notebook titled `Get Census Data for Merge.ipynb`. The  dataset is named as `emp_pop_data_05_14.csv`.
 
-We perform a robustness check assessing the relationship between 2007-2011 Census data (i.e., White unemployment, racial diversity/representation of POC, total population), 2006-2011 ideology estimates, and 2007-2011 claims data to increase the temporal correspondence of predictors and outcomes. For ease, we collect the 2007-2011 Census variables using the `tidycensus` R package in `UPDATED Primary Analysis.Rmd`.
+We perform a robustness check assessing the relationship between 2007-2011 Census data (i.e., White unemployment, representation of POC, total population), 2006-2011 ideology estimates, and 2007-2011 claims data to increase the temporal correspondence of predictors and outcomes. For ease, we collect the 2007-2011 Census variables using the `tidycensus` R package in `UPDATED Primary Analysis.Rmd`.
 
 ### Other Data and Data Sources
 
@@ -108,7 +108,7 @@ Contains your Census API key, saved as `CENSUS_KEY = [YOUR_KEY_HERE]`
 
 Imports user-generated `utils.R`.
 
-Cleans the raw EEOC data, generates a dataset of unique locations, merges the geocoded locations with the claims dataset (after running `Geocode Complaints.ipynb`), aggregates the data at the county level, and merges aggregated data with ideology dataset. 
+Cleans the raw claims data, generates a dataset of unique locations, merges the geocoded locations with the claims dataset (after running `Geocode Complaints.ipynb`), aggregates the data at the county level, and merges aggregated data with ideology dataset. 
 
 
 4. `Geocode Complaints.ipynb`
