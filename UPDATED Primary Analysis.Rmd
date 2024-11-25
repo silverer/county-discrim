@@ -329,8 +329,8 @@ format_regression_table <- function(models,
     #print(tracker)
     tmp_res = summary(m)
     tmp_coef = data.frame(tmp_res$coefficients)
-    tmp_coef[,1] = number(tmp_coef[,1],accuracy = .01)#beta
-    tmp_coef[,2] = number(tmp_coef[,2], accuracy = .01)#SE beta
+    tmp_coef[,1] = number(tmp_coef[,1],accuracy = .01)#coeff
+    tmp_coef[,2] = number(tmp_coef[,2], accuracy = .01)#SE coeff
     tmp_coef[,4] = sapply(tmp_coef[,4], statstring::format_sig_stars)#p-val
     tmp_coef[,1] = paste0(tmp_coef[,1], tmp_coef[,4])
     tmp_coef["Predictor"] = rownames(tmp_coef)
@@ -344,10 +344,10 @@ format_regression_table <- function(models,
                                                                        accuracy = .001)
     if(tracker > 1){
       mod_aov = anova(models[[tracker - 1]], models[[tracker]])
-      if(is.na(mod_aov$`Pr(>F)`[2])){ #if this is the model with the interaction btwn diversity and white unemployment, compare against model with no interactions
-        mod_aov = anova(models[[1]], models[[tracker]])
-        print(mod_aov)
-      }
+      # if(is.na(mod_aov$`Pr(>F)`[2])){ #if this is the model with the interaction btwn diversity and white unemployment, compare against model with no interactions
+      #   mod_aov = anova(models[[1]], models[[tracker]])
+      #   print(mod_aov)
+      # }
       
       reg_fmt[reg_fmt$Predictor == "Change in R2", 
               paste0(mnum, "se_b")] <- paste0(number(mod_aov$`F`[2], accuracy =.01),
@@ -359,9 +359,15 @@ format_regression_table <- function(models,
   return(reg_fmt)
 }
 
-modlist <- list(m0.ut,m2,m2a,m3)
+modlist <- list(m0.ut,m2,m3)
 reg_out <- format_regression_table(modlist)
-#NOTE: the output will have erroneous info for the model comparison for m3, because it is comparing m3 to m2a (rather than m3 to m2). This is changed by hand after saving the file in Excel.
+m2a.sum <- format_regression_table(list(m0.ut,m2a))
+m2a.sum <- m2a.sum %>% 
+  rename(model2a_b=model2_b,
+         model2a_se_b=model2_se_b) %>% 
+  select(-starts_with("model1")) %>% 
+  select(-contains("Pretty"))
+reg_out <- left_join(reg_out, m2a.sum, by = "Predictor")
 write.xlsx(reg_out, paste0("outputs/", "regression_outs_no_retal_v2.xlsx"),overwrite = T)
 
 ```
@@ -670,6 +676,8 @@ m3 <- lm(prop_white_comp~acs_nonwhite_prop*mrp_ideology*total_unemp_rate+log_tot
 summary(m3)
 ```
 
+Note: The change in R2 needs to be manually updated in the results spreadsheet so that the 3-way interaction model is compared to the 2-way interaction model with conservatism as a moderator (rather than unemployment).
+
 ```{r}
 reg_fmt_tmp <- read.csv(paste0(local_data,"regression_format_v1.csv"))
 reg_fmt_tmp <- reg_fmt_tmp %>% 
@@ -678,17 +686,20 @@ reg_fmt_tmp <- reg_fmt_tmp %>%
   mutate(across(everything(), 
                 ~str_replace_all(.x, "White unemployment", "All unemployment")))
 
-modlist <- list(m1,m2,m2a,m3)
+modlist <- list(m1,m2,m3)
 reg_out <- format_regression_table(modlist, reg_fmt=reg_fmt_tmp)
-
-# num_line <- rep("", ncol(reg_out))
-# num_line[1] <- paste0("N = ",number(nrow(grpd_demog_county), big.mark=","))
-# reg_out <- rbind(reg_out, num_line)
+m2a.sum <- format_regression_table(list(m1,m2a), reg_fmt=reg_fmt_tmp)
+m2a.sum <- m2a.sum %>% 
+  rename(model2a_b=model2_b,
+         model2a_se=model2_se_b) %>% 
+  select(-starts_with("model1"))
+anova(m2,m3)
+reg_out <- left_join(reg_out, m2a.sum, by = "Predictor")
 write.xlsx(reg_out, paste0(output,
                            "robustness_all_unemploy_v2.xlsx"),overwrite = T)
 ```
 
-?## Robustness: Predicting 2007-2011 claims with 2007-2011 ACS data and 2006-2011 Conservatism
+## Robustness: Predicting 2007-2011 claims with 2007-2011 ACS data and 2006-2011 Conservatism
 
 
 ```{r}
@@ -782,13 +793,23 @@ summary(m2a)
 m3 <- lm(prop.white.comp~log.total.pop+white_unemp_rate*percent_poc*mrp_ideology, merged.grp)
 summary(m3)
 ```
-Format outputs
+
+Format outputs (copy and paste these into a spreadsheet)
 
 ```{r}
-p_load(sjPlot)
-tab_model(m1,m2,m2a,m3, show.se=T,show.ci=F,std.response = F)
+tmp_fmt <- read.csv("data/regression_format_rbst_2.csv")
+modlist <- list(m1,m2,m3)
+reg_out <- format_regression_table(modlist, reg_fmt=tmp_fmt)
+m2a.sum <- format_regression_table(list(m1,m2a), reg_fmt=tmp_fmt)
+m2a.sum <- m2a.sum %>% 
+  rename(model2a_b=model2_b,
+         model2a_se=model2_se_b) %>% 
+  select(-starts_with("model1"))
+anova(m2,m3)
+reg_out <- left_join(reg_out, m2a.sum, by = "Predictor")
+write.xlsx(reg_out, paste0(output,
+                           "robustness_temporal.xlsx"),overwrite = T)
+
 ```
-
-
 
 

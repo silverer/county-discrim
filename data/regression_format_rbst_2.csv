@@ -1,0 +1,12 @@
+﻿Predictor,Predictor_pretty
+(Intercept),Intercept
+percent_poc,POC representation
+mrp_ideology,Conservatism
+white_unemp_rate,White unemployment
+log.total.pop,Total population (log-transformed)
+percent_poc:mrp_ideology,POC representation x Conservatism
+white_unemp_rate:percent_poc,POC representation x White unemployment
+white_unemp_rate:mrp_ideology,Conservatism x White unemployment
+white_unemp_rate:percent_poc:mrp_ideology,POC representation x Conservatism x White unemployment
+R2,R2
+Change in R2,Change in R2
